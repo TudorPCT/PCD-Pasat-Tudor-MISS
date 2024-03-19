@@ -1,7 +1,5 @@
 import time
-
 import client
-
 
 i = 0
 while i < 10:
@@ -13,4 +11,3 @@ while i < 10:
     i += 1
 
 client.print_final_statistics()
-
