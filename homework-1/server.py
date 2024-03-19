@@ -1,9 +1,10 @@
 import socket
+
 from config import *
 
 i = 0
-messages_final_results = []
-bytes_final_results = []
+messages_final_results = [176]
+bytes_final_results = [10531520]
 
 
 def init_server(server_addr_port: (str, int), socket_type: socket.SocketKind):
@@ -56,9 +57,10 @@ def tcp_stop_and_wait():
 
     messages_read = 0
     bytes_received = 0
-
+    bytes_to_receive = TCP_BUFFER_SIZE
     while True:
         try:
+
             data = tcp_client_socket.recv(TCP_BUFFER_SIZE)
 
             if not data:
@@ -66,9 +68,11 @@ def tcp_stop_and_wait():
 
             messages_read += 1
             bytes_received += len(data)
-
-            tcp_client_socket.send(ACK_MESSAGE)
-
+            if bytes_to_receive - len(data) <= 0:
+                bytes_to_receive = TCP_BUFFER_SIZE
+                tcp_client_socket.send(ACK_MESSAGE)
+            else:
+                bytes_to_receive -= len(data)
         except ConnectionResetError:
             break
 
@@ -84,7 +88,6 @@ def tcp_stop_and_wait():
 
 def udp_streaming():
     udp_server_socket = init_server(SERVER_ADDR_PORT, socket.SOCK_DGRAM)
-
     messages_read = 0
     bytes_received = 0
 
@@ -112,18 +115,37 @@ def udp_stop_and_wait():
 
     messages_read = 0
     bytes_received = 0
+    bytes_to_receive = UDP_BUFFER_SIZE
+
+    package = bytes()
+    recv_data = bytes()
+    last_package_hash = 0
 
     while True:
+
         bytes_address_pair = udp_server_socket.recvfrom(UDP_BUFFER_SIZE)
         data = bytes_address_pair[0]
         addr = bytes_address_pair[1]
 
         if data == STOP_MESSAGE:
             break
+
         messages_read += 1
         bytes_received += len(data)
+        #       print(messages_read)
+        if bytes_to_receive - len(data) <= 0:
+            bytes_to_receive = UDP_BUFFER_SIZE
 
-        udp_server_socket.sendto(ACK_MESSAGE, addr)
+            recv_package_hash = hash(package)
+            if recv_package_hash == last_package_hash:
+                recv_data += package
+                package = bytes()
+                last_package_hash = recv_package_hash
+
+            udp_server_socket.sendto(ACK_MESSAGE, addr)
+        else:
+            package += data
+            bytes_to_receive -= len(data)
 
     udp_server_socket.close()
 
