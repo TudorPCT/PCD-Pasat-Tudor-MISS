@@ -3,8 +3,8 @@ import socket
 from config import *
 
 i = 0
-messages_final_results = [176]
-bytes_final_results = [10531520]
+messages_final_results = []
+bytes_final_results = []
 
 
 def init_server(server_addr_port: (str, int), socket_type: socket.SocketKind):
