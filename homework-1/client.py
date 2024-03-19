@@ -10,8 +10,13 @@ bytes_confirmed_final_results = []
 transmission_time_final_results = []
 
 
-def get_mock_data(size):
-    return b"0" * size
+def get_mock_data(size, n):
+    mock_data = bytearray(b"0" * size)
+
+    for i in range(0, size, n):
+        mock_data[i] = ord('1')
+
+    return bytes(mock_data)
 
 
 def init_client(server_addr_port: (str, int), socket_type: socket.SocketKind):
@@ -30,7 +35,7 @@ def init_client(server_addr_port: (str, int), socket_type: socket.SocketKind):
 
 def tcp_streaming(message_size: int):
     tcp_client_socket = init_client(SERVER_ADDR_PORT, socket.SOCK_STREAM)
-    data_to_send = get_mock_data(message_size)
+    data_to_send = get_mock_data(message_size, TCP_BUFFER_SIZE)
 
     messages_sent = 0
     bytes_sent = 0
@@ -59,7 +64,7 @@ def tcp_streaming(message_size: int):
 
 def tcp_stop_and_wait(message_size: int):
     tcp_client_socket = init_client(SERVER_ADDR_PORT, socket.SOCK_STREAM)
-    data_to_send = get_mock_data(message_size)
+    data_to_send = get_mock_data(message_size, TCP_BUFFER_SIZE)
 
     messages_sent = 0
     bytes_sent = 0
@@ -69,20 +74,26 @@ def tcp_stop_and_wait(message_size: int):
     while bytes_confirmed < message_size:
         bytes_to_send = min(TCP_BUFFER_SIZE, message_size - bytes_confirmed)
 
-        bytes_sent_successfully = tcp_client_socket.send(
-            data_to_send[bytes_confirmed:bytes_confirmed + bytes_to_send]
-        )
+        try:
+            bytes_successfully_sent = tcp_client_socket.send(
+                data_to_send[bytes_confirmed:bytes_confirmed + bytes_to_send]
+            )
+        except BrokenPipeError:
+            break
 
         bytes_sent += bytes_to_send
         messages_sent += 1
-
         try:
-            acknowledge, _ = tcp_client_socket.recvfrom(len(ACK_MESSAGE))
+            if bytes_sent == message_size:
+                break
+            acknowledge = tcp_client_socket.recv(3)
+            if acknowledge == ACK_MESSAGE:
+                bytes_confirmed += bytes_successfully_sent
+                acknowledge = b""
+            else:
+                break
         except socket.timeout:
-            continue
-
-        if acknowledge == ACK_MESSAGE:
-            bytes_confirmed += bytes_sent_successfully
+            break
 
     transmission_time = time.time() - start_time
 
@@ -101,13 +112,15 @@ def tcp_stop_and_wait(message_size: int):
 
 def udp_streaming(message_size: int):
     udp_client_socket = init_client(SERVER_ADDR_PORT, socket.SOCK_DGRAM)
-    data_to_send = get_mock_data(message_size)
+    data_to_send = get_mock_data(message_size, UDP_BUFFER_SIZE)
 
     messages_sent = 0
     bytes_sent = 0
     start_time = time.time()
 
     while bytes_sent < message_size:
+        if messages_sent % 4000 == 0:
+            time.sleep(0.1)
         bytes_sent_successfully = udp_client_socket.sendto(
             data_to_send[bytes_sent:bytes_sent + min(UDP_BUFFER_SIZE, message_size - bytes_sent)],
             SERVER_ADDR_PORT
@@ -117,9 +130,10 @@ def udp_streaming(message_size: int):
 
     transmission_time = time.time() - start_time
 
+    time.sleep(5)
+
     udp_client_socket.sendto(STOP_MESSAGE, SERVER_ADDR_PORT)
 
-    time.sleep(0.0001)
     udp_client_socket.close()
 
     print_client_results(
@@ -133,14 +147,14 @@ def udp_streaming(message_size: int):
 
 def udp_stop_and_wait(message_size: int):
     udp_client_socket = init_client(SERVER_ADDR_PORT, socket.SOCK_DGRAM)
-    data_to_send = get_mock_data(message_size)
+    data_to_send = get_mock_data(message_size, UDP_BUFFER_SIZE)
 
     messages_sent = 0
     bytes_sent = 0
     bytes_confirmed = 0
     start_time = time.time()
 
-    while bytes_confirmed < message_size:
+    while True:
         bytes_to_send = min(UDP_BUFFER_SIZE, message_size - bytes_confirmed)
 
         bytes_sent_successfully = udp_client_socket.sendto(
@@ -149,14 +163,18 @@ def udp_stop_and_wait(message_size: int):
         )
         bytes_sent += bytes_to_send
         messages_sent += 1
-
+        # print(messages_sent)
         try:
-            acknowledge, _ = udp_client_socket.recvfrom(len(ACK_MESSAGE))
+            acknowledge, _ = udp_client_socket.recvfrom(3)
+            if acknowledge == ACK_MESSAGE:
+                bytes_confirmed += bytes_sent_successfully
+            else:
+                break
         except socket.timeout:
-            continue
+            pass
 
-        if acknowledge == ACK_MESSAGE:
-            bytes_confirmed += bytes_sent_successfully
+        if bytes_confirmed == message_size:
+            break
 
     transmission_time = time.time() - start_time
 
@@ -240,3 +258,9 @@ def main(protocol=PROTOCOL, mechanism=MECHANISM, message_size=MESSAGE_SIZE):
 
 if __name__ == '__main__':
     main()
+
+# 2147484 / 5000 = 429.4968
+# 2147484 / 6000 = 357.913
+# 71.5838 * 0.1 = 7.15838
+
+# 484696860 - 524288000 = 39540860
